@@ -3,45 +3,39 @@ import cv2
 import numpy as np
 
 def main():
-    st.title("推しのすぅ式化システム[Lite]")
+    st.title("推しのすぅ式化システム")
     
-    uploaded_file = st.file_uploader("画像をアップロードしてください", type=["png"])
+    uploaded_file = st.file_uploader("画像をアップロードしてください", type=["jpg", "png", "jpeg"])
     
     if uploaded_file is not None:
         image = read_image(uploaded_file)
-        st.image(image, caption="アップロードされた画像", use_column_width=True)
+        st.image(image, caption="アップロード画像", use_column_width=True)
         
-        contours_image = detect_outer_contours(image)
-        st.image(contours_image, caption="外側の輪郭検出結果", use_column_width=True)
+        # スライダーでエッジの閾値を設定
+        max_threshold = 255
+        edge_threshold = st.slider("エッジの閾値", min_value=1, max_value=max_threshold, value=100)
+        st.write("閾値が大きいほど線分は少なくなり，数式も短くなります．")
+        edges_image = detect_edges(image, edge_threshold)
+        st.image(edges_image, caption="抽出された線分", use_column_width=True)
         
-        # 数式の表示
-        lines = extract_lines(contours_image)
+        lines = extract_lines(edges_image)
         
-        if st.button("数式化"):
+        if st.button("近似式を算出する"):
             equation = generate_equation_from_lines(lines)
-            st.write("数式近似:", equation)
-        
+            st.write("結果:", equation)
 
 def read_image(uploaded_file):
     image = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(image, cv2.IMREAD_UNCHANGED)
+    image = cv2.imdecode(image, cv2.IMREAD_COLOR)
     return image
 
-def detect_outer_contours(image):
-    alpha_channel = image[:, :, 3]
-    _, thresh = cv2.threshold(alpha_channel, 128, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    contour_image = np.zeros_like(image)
-    for contour in contours:
-        cv2.drawContours(contour_image, [contour], -1, (255, 255, 255, 255), 2)
-    
-    return contour_image
+def detect_edges(image, threshold):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, threshold1=threshold, threshold2=2*threshold)
+    return edges
 
-def extract_lines(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)  # 画像をグレースケールに変換
-    edges = cv2.Canny(gray, threshold1=100, threshold2=200)
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=20, maxLineGap=5)
+def extract_lines(edges_image):
+    lines = cv2.HoughLinesP(edges_image, 1, np.pi / 180, threshold=50, minLineLength=20, maxLineGap=5)
     return lines
 
 def generate_equation_from_lines(lines):
@@ -63,7 +57,7 @@ def generate_equation_from_lines(lines):
     if valid_lines:
         equation += "("
         for slope, y_intercept, x1, x2 in valid_lines:
-            equation += f"{slope:.2f}x + {y_intercept:.2f} (for {x1} <= x <= {x2}), "
+            equation += f"{slope:.2f}x + {y_intercept:.2f} ({x1} <= x <= {x2}), "
         equation = equation.rstrip(", ") + ")"
     else:
         equation = "No valid lines found."
