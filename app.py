@@ -1,45 +1,47 @@
 import streamlit as st
 import cv2
 import numpy as np
-from scipy.interpolate import interp1d
-from sympy import symbols, cos, sin, pi, simplify
 
 def main():
-    st.title("推しの数式化システム")
+    st.title("推しのすぅ式化システム[Lite]")
     
-    uploaded_file = st.file_uploader("画像をアップロードしてください", type=["jpg", "png", "jpeg"])
+    uploaded_file = st.file_uploader("画像をアップロードしてください", type=["png"])
     
     if uploaded_file is not None:
         image = read_image(uploaded_file)
-        st.image(image, caption="アップロード画像", use_column_width=True)
+        st.image(image, caption="アップロードされた画像", use_column_width=True)
         
-        # スライダーでエッジの閾値を設定
-        max_threshold = 255
-        edge_threshold = st.slider("エッジの閾値", min_value=1, max_value=max_threshold, value=100)
-        st.write("閾値が大きいほど線分は少なくなり，数式も短くなります．")
-        edges_image = detect_edges(image, edge_threshold)
-        st.image(edges_image, caption="抽出された線分", use_column_width=True)
+        contours_image = detect_outer_contours(image)
+        st.image(contours_image, caption="外側の輪郭検出結果", use_column_width=True)
         
-        lines = extract_lines(edges_image)
+        # 数式の表示
+        lines = extract_lines(contours_image)
         
-        if st.button("近似式を算出する（注意）重め"):
-            coefficients = calculate_fourier_coefficients(lines)
-            fourier_series_equation = generate_fourier_series_equation(coefficients)
-            st.write("結果:")
-            st.latex(fourier_series_equation)
+        if st.button("数式化"):
+            equation = generate_equation_from_lines(lines)
+            st.write("数式近似:", equation)
+        
 
 def read_image(uploaded_file):
     image = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(image, cv2.IMREAD_COLOR)
+    image = cv2.imdecode(image, cv2.IMREAD_UNCHANGED)
     return image
 
-def detect_edges(image, threshold):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, threshold1=threshold, threshold2=2*threshold)
-    return edges
+def detect_outer_contours(image):
+    alpha_channel = image[:, :, 3]
+    _, thresh = cv2.threshold(alpha_channel, 128, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    contour_image = np.zeros_like(image)
+    for contour in contours:
+        cv2.drawContours(contour_image, [contour], -1, (255, 255, 255, 255), 2)
+    
+    return contour_image
 
-def extract_lines(edges_image):
-    lines = cv2.HoughLinesP(edges_image, 1, np.pi / 180, threshold=50, minLineLength=20, maxLineGap=5)
+def extract_lines(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)  # 画像をグレースケールに変換
+    edges = cv2.Canny(gray, threshold1=100, threshold2=200)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=20, maxLineGap=5)
     return lines
 
 def generate_equation_from_lines(lines):
@@ -67,26 +69,6 @@ def generate_equation_from_lines(lines):
         equation = "No valid lines found."
 
     return equation
-
-def calculate_fourier_coefficients(lines):
-    coefficients = []
-    for line in lines:
-        x1, y1, x2, y2 = line[0]
-        coefficients.append((y2 - y1, x2 - x1))
-    return coefficients
-
-def generate_fourier_series_equation(coefficients, max_degree=300):
-    t = symbols('t')
-    omega_0 = 2 * pi
-    fourier_series = 0
-
-    for i in range(1, max_degree + 1):
-        a_k, b_k = coefficients[i - 1] if i <= len(coefficients) else (0, 0)
-        term = a_k * cos(i * omega_0 * t) + b_k * sin(i * omega_0 * t)
-        fourier_series += term
-
-    simplified_series = simplify(fourier_series)
-    return simplified_series
 
 if __name__ == "__main__":
     main()
